@@ -1,0 +1,24 @@
+[project]
+name = "toss-tech-blog-extractor"
+version = "0.1.0"
+description = "A Python project to crawl and extract articles from the Toss Tech Blog, including URL collection, validation, and content extraction to JSON and Markdown."
+readme = "README.md"
+authors = [
+    { name = "jaehunshin", email = "jhshin0422@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "aiohttp",
+    "beautifulsoup4",
+    "html2text",
+    "requests"
+]
+
+[project.scripts]
+toss-url-crawler = "toss_tech_blog_extractor.toss_url_crawler:main"
+toss-techblog-extractor = "toss_tech_blog_extractor.toss_techblog_extractor:main"
+check-urls = "toss_tech_blog_extractor.check_urls:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

@@ -1,0 +1,18 @@
+aiohappyeyeballs==2.6.1
+aiohttp==3.12.15
+aiosignal==1.4.0
+attrs==25.3.0
+beautifulsoup4==4.13.4
+certifi==2025.8.3
+charset-normalizer==3.4.3
+frozenlist==1.7.0
+html2text==2025.4.15
+idna==3.10
+multidict==6.6.4
+propcache==0.3.2
+requests==2.32.4
+soupsieve==2.7
+-e file:///C:/Users/JHSHIN/ProgrammingCodes/toss-tech-blog-extractor
+typing-extensions==4.14.1
+urllib3==2.5.0
+yarl==1.20.1
