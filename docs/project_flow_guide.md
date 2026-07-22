@@ -8,49 +8,52 @@
 
 ## 2. 주요 구성 요소 및 역할
 
-프로젝트는 크게 세 가지 주요 스크립트로 구성됩니다:
+프로젝트는 CLI, 서비스 모듈, 저장 모듈로 구성됩니다:
 
--   `toss_url_crawler.py`: 토스 기술 블로그의 모든 게시글 URL을 수집합니다.
--   `toss_techblog_extractor.py`: 수집된 URL에서 각 게시글의 제목, 본문, 날짜 등 핵심 콘텐츠를 추출합니다.
--   `check_urls.py`: (선택 사항) 수집된 URL의 유효성을 검사하거나 특정 조건을 확인하는 데 사용될 수 있습니다.
+-   `cli.py`: `url_crawler`, `techblog_extractor`, `check_urls` 명령을 하나의 진입점으로 제공합니다.
+-   `url_collector.py`: 토스 기술 블로그의 게시글 URL을 수집합니다.
+-   `article_extractor.py`: 수집된 URL에서 각 게시글의 제목, 본문, 날짜 등 핵심 콘텐츠를 추출합니다.
+-   `url_checker.py`: (선택 사항) 수집된 URL의 HTTP 상태를 확인합니다.
+-   `clients.py`, `selectors.py`, `models.py`, `exporters.py`: HTTP 설정, 사이트 선택자, 결과 모델, 파일 저장 책임을 분리합니다.
+
+기존의 `toss_url_crawler.py`, `toss_techblog_extractor.py`, `check_urls.py`는 이전 패키지 명령어와 import 경로를 유지하기 위한 호환 래퍼입니다.
 
 ## 3. 전체 데이터 흐름
 
-1.  **URL 수집 (`toss_url_crawler.py`)**
-    -   `toss_url_crawler.py` 스크립트가 실행됩니다.
-    -   토스 기술 블로그 웹사이트를 탐색하며, 모든 게시글의 고유 URL을 식별하고 수집합니다.
+1.  **URL 수집 (`url_collector.py`)**
+    -   `url_collector.py` 서비스가 실행됩니다.
+    -   토스 기술 블로그의 공개 목록 API에서 게시글 slug를 수집해 URL을 만듭니다.
+    -   API를 사용할 수 없으면 HTML 목록 페이지 수집으로 자동 전환합니다.
     -   수집된 URL 목록은 다음 단계인 추출 과정에서 사용될 수 있도록 준비됩니다 (예: 파일로 저장).
 
-2.  **콘텐츠 추출 (`toss_techblog_extractor.py`)**
-    -   `toss_techblog_extractor.py` 스크립트가 실행됩니다.
-    -   `toss_url_crawler.py`에서 수집된 URL 목록을 입력으로 받습니다.
+2.  **콘텐츠 추출 (`article_extractor.py`)**
+    -   `article_extractor.py` 서비스가 실행됩니다.
+    -   `url_collector.py`에서 수집된 URL 목록을 입력으로 받습니다.
     -   각 URL에 접속하여 해당 게시글의 HTML 내용을 가져옵니다.
-    -   가져온 HTML에서 미리 정의된 CSS 선택자를 사용하여 제목, 본문, 날짜 등의 특정 데이터를 파싱하고 추출합니다.
+    -   가져온 HTML에서 의미 있는 태그와 메타데이터를 우선 사용하고, CSS 선택자를 보조 수단으로 사용해 제목, 본문, 날짜를 파싱합니다.
     -   추출된 데이터는 구조화된 형태로 저장됩니다 (예: JSON, 데이터베이스).
 
-3.  **URL 유효성 검사 (`check_urls.py`) (선택 사항)**
-    -   `check_urls.py` 스크립트는 수집되거나 추출된 URL 목록에 대해 추가적인 검증을 수행할 수 있습니다.
+3.  **URL 유효성 검사 (`url_checker.py`) (선택 사항)**
+    -   `url_checker.py` 서비스는 수집되거나 추출된 URL 목록에 대해 추가적인 검증을 수행할 수 있습니다.
     -   예를 들어, URL이 여전히 유효한지, 특정 패턴을 따르는지 등을 확인할 수 있습니다.
 
-## 4. CSS 선택자 전략: 동적 클래스 이름 사용의 배경
+## 4. 파싱 폴백 전략
 
-`toss_techblog_extractor.py`에서 콘텐츠를 추출할 때, 토스 기술 블로그의 특성상 동적으로 생성되는 `css-` 접두사 클래스 이름을 CSS 선택자로 사용합니다. 이는 다음과 같은 이유 때문입니다.
+`selectors.py`는 동적으로 생성되는 CSS 클래스에만 의존하지 않습니다. HTML 구조가 바뀌어도 추출을 최대한 지속할 수 있도록 의미 기반 파싱과 CSS 선택자 폴백을 함께 사용합니다.
 
-### 4.1. 안정적인 대안의 부재
+### 4.1. 우선순위
 
-토스 기술 블로그의 페이지 소스를 분석한 결과, 본문, 제목, 날짜 등 핵심 콘텐츠 영역을 명확하게 구분할 수 있는 고유 ID (`id="article-body"`), 의미 있는 클래스명 (`class="post-content"`), 또는 HTML 시맨틱 태그 (`<article>`, `<main>`)와 같은 **안정적인 식별자가 존재하지 않습니다.** 모든 요소가 동적으로 생성된 `css-` 클래스 이름으로만 구성되어 있어, 현재로서는 이 동적 클래스 이름이 해당 요소를 유일하게 식별할 수 있는 유일한 방법입니다.
+- 제목: `<h1>` → Open Graph 제목 메타데이터
+- 날짜: `<time>` 또는 헤더의 날짜 텍스트 → 페이지 데이터의 `publishedTime`
+- 본문: 기존 본문 CSS 선택자 → 게시글 헤더 다음의 콘텐츠 영역
 
-### 4.2. 차선책으로서의 선택
+### 4.2. CSS 선택자의 역할
 
-안정적인 대안이 없는 상황에서, 동적 클래스 이름은 **현재 시점에서 해당 요소를 유일하게 식별할 수 있는 차선책**입니다. 크롤러는 데이터를 가져와야 하므로, 비록 불안정하더라도 현재 사용 가능한 유일한 식별자를 사용할 수밖에 없습니다.
+본문의 서식과 이미지를 보존하려면 기존 `css-1vn47db` 선택자가 가장 정확합니다. 다만 이는 사이트 배포에 따라 변경될 수 있으므로, 선택자가 맞지 않을 때는 구조 기반 폴백을 사용합니다.
 
-### 4.3. 위험 완화 전략: `*=` 선택자 사용
+### 4.3. 검증과 유지보수
 
-이러한 불안정성을 조금이라도 완화하기 위해, 개발자는 `=` (정확히 일치) 대신 `*=` (문자열 포함) 선택자를 사용했습니다. 예를 들어, `h1[class*="css-vf4rrt"]`와 같이 사용합니다. 이는 클래스 목록에 다른 클래스가 추가되더라도 (예: `class="css-vf4rrt another-class"`) 선택자가 계속 작동할 수 있도록 최소한의 유연성을 확보하기 위함입니다.
-
-### 4.4. 유지보수 비용의 감수
-
-이러한 접근 방식은 **"크롤러는 언젠가 깨질 수 있다"**는 것을 전제합니다. 토스 기술 블로그의 프론트엔드 구조가 변경되면 이 선택자들은 더 이상 작동하지 않을 것입니다. 따라서 이 크롤러는 **지속적인 모니터링과 유지보수가 필요**하며, 이는 웹 크롤링 프로젝트의 본질적인 부분입니다.
+동적 클래스가 바뀌어도 현재 HTML 구조를 검증할 수 있도록 단위 테스트를 유지합니다. 새 구조가 도입되면 `selectors.py`와 테스트 fixture를 함께 갱신합니다.
 
 ## 5. 프로젝트 실행 방법 (예시)
 
@@ -75,7 +78,7 @@ uv sync
 ```bash
 python main.py <도구_이름> [도구_인자]
 # 또는
-uv run main <도구_이름> [도구_인자]
+uv run toss-tech-blog <도구_이름> [도구_인자]
 ```
 
 -   `<도구_이름>`: 실행할 도구의 이름입니다. 다음 중 하나를 선택할 수 있습니다:
@@ -89,12 +92,12 @@ uv run main <도구_이름> [도구_인자]
 # URL 수집 (URL 크롤러 실행)
 python main.py url_crawler
 # 또는
-uv run main url_crawler
+uv run toss-tech-blog url_crawler
 
 # 콘텐츠 추출 (Techblog 추출기 실행, 입력 파일 및 마크다운 저장 옵션 포함)
 python main.py techblog_extractor -i data/urls/toss_url_MMDD.txt -m
 # 또는
-uv run main techblog_extractor -i data/urls/toss_url_MMDD.txt -m
+uv run toss-tech-blog techblog_extractor -i data/urls/toss_url_MMDD.txt -m
 ```
 
 자세한 사용법은 `python main.py <도구_이름> --help` 명령을 통해 확인할 수 있습니다.
