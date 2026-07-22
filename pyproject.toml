@@ -18,6 +18,7 @@ dependencies = [
 toss-url-crawler = "toss_tech_blog_extractor.toss_url_crawler:main"
 toss-techblog-extractor = "toss_tech_blog_extractor.toss_techblog_extractor:main"
 check-urls = "toss_tech_blog_extractor.check_urls:main"
+toss-tech-blog = "toss_tech_blog_extractor.cli:main"
 
 [build-system]
 requires = ["hatchling"]
