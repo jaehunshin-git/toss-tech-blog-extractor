@@ -10,32 +10,34 @@
 
 프로젝트는 CLI, 서비스 모듈, 저장 모듈로 구성됩니다:
 
--   `cli.py`: `url_crawler`, `techblog_extractor`, `check_urls` 명령을 하나의 진입점으로 제공합니다.
--   `url_collector.py`: 토스 기술 블로그의 게시글 URL을 수집합니다.
--   `article_extractor.py`: 수집된 URL에서 각 게시글의 제목, 본문, 날짜 등 핵심 콘텐츠를 추출합니다.
--   `url_checker.py`: (선택 사항) 수집된 URL의 HTTP 상태를 확인합니다.
--   `clients.py`, `selectors.py`, `models.py`, `exporters.py`: HTTP 설정, 사이트 선택자, 결과 모델, 파일 저장 책임을 분리합니다.
+- `cli.py`: `url_crawler`, `techblog_extractor`, `check_urls` 명령을 하나의 진입점으로 제공합니다.
+- `url_collector.py`: 토스 기술 블로그의 게시글 URL을 수집합니다.
+- `article_extractor.py`: 수집된 URL에서 각 게시글의 제목, 본문, 날짜 등 핵심 콘텐츠를 추출합니다.
+- `url_checker.py`: 수집된 URL의 HTTP 상태를 확인합니다.
+- `metrics.py`: 성공·실패·재시도 사유·소요시간을 실행 단위로 집계합니다.
+- `clients.py`, `selectors.py`, `models.py`, `exporters.py`: HTTP 설정, 사이트 선택자, 결과 모델, 파일 저장 책임을 분리합니다.
 
 기존의 `toss_url_crawler.py`, `toss_techblog_extractor.py`, `check_urls.py`는 이전 패키지 명령어와 import 경로를 유지하기 위한 호환 래퍼입니다.
 
 ## 3. 전체 데이터 흐름
 
-1.  **URL 수집 (`url_collector.py`)**
-    -   `url_collector.py` 서비스가 실행됩니다.
-    -   토스 기술 블로그의 공개 목록 API에서 게시글 slug를 수집해 URL을 만듭니다.
-    -   API를 사용할 수 없으면 HTML 목록 페이지 수집으로 자동 전환합니다.
-    -   수집된 URL 목록은 다음 단계인 추출 과정에서 사용될 수 있도록 준비됩니다 (예: 파일로 저장).
+1. **URL 수집 (`url_collector.py`)**
+    - 토스 기술 블로그의 공개 목록 API에서 게시글 slug를 수집해 URL을 만듭니다.
+    - API를 사용할 수 없으면 HTML 목록 페이지 수집으로 자동 전환합니다.
+    - 정규화하고 중복을 제거한 URL을 텍스트 파일로 저장합니다.
 
-2.  **콘텐츠 추출 (`article_extractor.py`)**
-    -   `article_extractor.py` 서비스가 실행됩니다.
-    -   `url_collector.py`에서 수집된 URL 목록을 입력으로 받습니다.
-    -   각 URL에 접속하여 해당 게시글의 HTML 내용을 가져옵니다.
-    -   가져온 HTML에서 의미 있는 태그와 메타데이터를 우선 사용하고, CSS 선택자를 보조 수단으로 사용해 제목, 본문, 날짜를 파싱합니다.
-    -   추출된 데이터는 구조화된 형태로 저장됩니다 (예: JSON, 데이터베이스).
+2. **콘텐츠 추출 (`article_extractor.py`)**
+    - URL 목록을 입력으로 받아 제한된 동시성으로 게시글 HTML을 요청합니다.
+    - 의미 있는 태그와 메타데이터를 우선 사용하고, CSS 선택자를 보조 수단으로 사용해 제목, 본문, 날짜를 파싱합니다.
+    - 추출 결과를 JSON과 선택적인 게시글별 Markdown으로 저장합니다.
 
-3.  **URL 유효성 검사 (`url_checker.py`) (선택 사항)**
-    -   `url_checker.py` 서비스는 수집되거나 추출된 URL 목록에 대해 추가적인 검증을 수행할 수 있습니다.
-    -   예를 들어, URL이 여전히 유효한지, 특정 패턴을 따르는지 등을 확인할 수 있습니다.
+3. **실행 결과 집계 (`metrics.py`)**
+    - URL별 최종 성공·실패와 실제 추가 요청이 발생한 재시도 사유를 기록합니다.
+    - 실행이 끝나면 성공률과 단조 시계 기준 소요시간을 CLI에 출력합니다.
+    - 라이브러리 사용자는 `TossArticleExtractor.last_run_summary`로 같은 결과를 조회할 수 있습니다.
+
+4. **URL 유효성 검사 (`url_checker.py`, 선택 사항)**
+    - 수집되거나 추출된 URL 목록의 현재 HTTP 상태를 확인합니다.
 
 ## 4. 파싱 폴백 전략
 
@@ -60,15 +62,7 @@
 프로젝트를 실행하기 전에 필요한 의존성을 설치해야 합니다. `pyproject.toml` 또는 `requirements.txt` 파일을 참조하여 `uv` 또는 `pip`를 사용하여 설치할 수 있습니다.
 
 ```bash
-uv pip install -r requirements.txt
-# 또는
-pip install -r requirements.txt
-```
-
-프로젝트 의존성을 `requirements.txt` 파일로부터 동기화하려면:
-
-```bash
-uv sync
+uv sync --locked
 ```
 
 모든 크롤링 및 추출 작업은 프로젝트 루트에 있는 `main.py` 스크립트를 통해 통합하여 실행할 수 있습니다.
@@ -84,6 +78,7 @@ uv run toss-tech-blog <도구_이름> [도구_인자]
 -   `<도구_이름>`: 실행할 도구의 이름입니다. 다음 중 하나를 선택할 수 있습니다:
     -   `url_crawler`: 토스 기술 블로그 URL을 수집합니다.
     -   `techblog_extractor`: 수집된 URL에서 게시글 콘텐츠를 추출합니다.
+    -   `check_urls`: URL 목록의 HTTP 상태를 확인합니다.
 -   `[도구_인자]`: 선택한 도구에 전달할 추가 인자입니다. 각 도구의 `--help` 옵션을 통해 자세한 인자를 확인할 수 있습니다.
 
 **예시**
