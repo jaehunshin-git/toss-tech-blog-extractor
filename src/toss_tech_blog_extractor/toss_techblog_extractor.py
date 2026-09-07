@@ -5,7 +5,7 @@ from .article_extractor import TossArticleExtractor, main
 # 기존 외부 코드에서 사용하던 클래스 이름을 유지한다.
 TossCrawler = TossArticleExtractor
 
-__all__ = ["TossCrawler", "TossArticleExtractor", "main"]
+__all__ = ["TossArticleExtractor", "TossCrawler", "main"]
 
 
 if __name__ == "__main__":

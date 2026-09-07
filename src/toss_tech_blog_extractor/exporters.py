@@ -2,15 +2,16 @@
 
 import json
 import re
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = PROJECT_ROOT / "data"
 
 
-def save_articles_json(articles: Iterable[dict[str, object]], output_file: str | Path) -> Path:
+def save_articles_json(
+    articles: Iterable[dict[str, object]], output_file: str | Path
+) -> Path:
     """게시글 목록을 UTF-8 JSON 파일로 저장한다."""
     output_path = Path(output_file)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -19,7 +20,9 @@ def save_articles_json(articles: Iterable[dict[str, object]], output_file: str |
     return output_path
 
 
-def save_articles_markdown(articles: Iterable[dict[str, object]], output_dir: str | Path) -> list[Path]:
+def save_articles_markdown(
+    articles: Iterable[dict[str, object]], output_dir: str | Path
+) -> list[Path]:
     """게시글별 Markdown 파일을 저장하고 생성된 경로를 반환한다."""
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -27,7 +30,9 @@ def save_articles_markdown(articles: Iterable[dict[str, object]], output_dir: st
 
     for index, article in enumerate(articles):
         content = article.get("content")
-        if not isinstance(content, dict) or not isinstance(content.get("markdown"), str):
+        if not isinstance(content, dict) or not isinstance(
+            content.get("markdown"), str
+        ):
             continue
 
         title = str(article.get("title", f"article_{index}"))

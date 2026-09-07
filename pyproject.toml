@@ -10,8 +10,13 @@ requires-python = ">=3.12"
 dependencies = [
     "aiohttp",
     "beautifulsoup4",
-    "html2text",
+    "markdownify>=1.2.3,<2",
     "requests"
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.16.6,<0.17",
 ]
 
 [project.scripts]
@@ -23,3 +28,9 @@ toss-tech-blog = "toss_tech_blog_extractor.cli:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["B", "BLE", "DTZ", "E", "F", "I", "RUF", "SIM", "UP"]

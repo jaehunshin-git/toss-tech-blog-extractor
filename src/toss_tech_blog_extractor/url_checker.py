@@ -2,31 +2,41 @@
 
 import argparse
 import asyncio
-from pathlib import Path
 import time
+from pathlib import Path
 
 import aiohttp
 
 from .clients import DEFAULT_HEADERS
 
 
-async def check_url_status(session, url: str, semaphore: asyncio.Semaphore) -> tuple[str, int | str]:
+async def check_url_status(
+    session, url: str, semaphore: asyncio.Semaphore
+) -> tuple[str, int | str]:
     """한 URL의 HTTP 상태 코드를 확인한다."""
     async with semaphore:
         try:
             timeout = aiohttp.ClientTimeout(total=5)
-            async with session.get(url.strip(), headers=DEFAULT_HEADERS, timeout=timeout) as response:
+            async with session.get(
+                url.strip(), headers=DEFAULT_HEADERS, timeout=timeout
+            ) as response:
                 return url, response.status
-        except Exception as error:
+        except (TimeoutError, aiohttp.ClientError) as error:
             return url, f"Error: {error}"
 
 
-async def check_all_urls(urls: list[str], max_concurrent: int = 25) -> list[tuple[str, int | str]]:
+async def check_all_urls(
+    urls: list[str], max_concurrent: int = 25
+) -> list[tuple[str, int | str]]:
     """여러 URL의 상태를 제한된 동시성으로 확인한다."""
     semaphore = asyncio.Semaphore(max_concurrent)
     async with aiohttp.ClientSession() as session:
         return await asyncio.gather(
-            *(check_url_status(session, url.strip(), semaphore) for url in urls if url.strip())
+            *(
+                check_url_status(session, url.strip(), semaphore)
+                for url in urls
+                if url.strip()
+            )
         )
 
 
@@ -70,6 +80,8 @@ def run_from_args(args: argparse.Namespace) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="파일에 있는 URL의 HTTP 상태를 확인합니다.")
+    parser = argparse.ArgumentParser(
+        description="파일에 있는 URL의 HTTP 상태를 확인합니다."
+    )
     add_arguments(parser)
     run_from_args(parser.parse_args(argv))

@@ -2,7 +2,6 @@
 
 import aiohttp
 
-
 DEFAULT_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -11,7 +10,9 @@ DEFAULT_HEADERS = {
 }
 
 
-def create_async_session(*, max_connections: int, timeout_seconds: int) -> aiohttp.ClientSession:
+def create_async_session(
+    *, max_connections: int, timeout_seconds: int
+) -> aiohttp.ClientSession:
     """동시 연결 수와 시간 제한이 적용된 aiohttp 세션을 만든다."""
     connector = aiohttp.TCPConnector(limit=max_connections, limit_per_host=5)
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)

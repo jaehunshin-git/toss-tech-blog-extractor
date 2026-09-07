@@ -15,7 +15,9 @@ def main(argv: list[str] | None = None) -> None:
     subparsers = parser.add_subparsers(dest="command", required=True)
     url_parser = subparsers.add_parser("url_crawler", help="게시글 URL 수집")
     url_parser.set_defaults(handler=lambda _: asyncio.run(run_url_collector()))
-    extract_parser = subparsers.add_parser("techblog_extractor", help="게시글 본문 추출")
+    extract_parser = subparsers.add_parser(
+        "techblog_extractor", help="게시글 본문 추출"
+    )
     add_extractor_arguments(extract_parser)
     extract_parser.set_defaults(handler=run_extractor)
     check_parser = subparsers.add_parser("check_urls", help="URL 상태 확인")

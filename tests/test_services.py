@@ -2,6 +2,8 @@
 
 import unittest
 
+from bs4 import BeautifulSoup
+
 from toss_tech_blog_extractor.article_extractor import TossArticleExtractor
 from toss_tech_blog_extractor.toss_techblog_extractor import TossCrawler
 from toss_tech_blog_extractor.toss_url_crawler import TossUrlCrawler
@@ -11,10 +13,14 @@ from toss_tech_blog_extractor.url_collector import TossUrlCollector
 class UrlCollectorTest(unittest.TestCase):
     def test_article_url_normalization(self):
         self.assertEqual(
-            TossUrlCollector.normalize_article_url("/article/example?source=home#section"),
+            TossUrlCollector.normalize_article_url(
+                "/article/example?source=home#section"
+            ),
             "https://toss.tech/article/example",
         )
-        self.assertIsNone(TossUrlCollector.normalize_article_url("https://toss.im/article/example"))
+        self.assertIsNone(
+            TossUrlCollector.normalize_article_url("https://toss.im/article/example")
+        )
 
     def test_article_urls_are_deduplicated(self):
         html = """
@@ -31,9 +37,17 @@ class UrlCollectorTest(unittest.TestCase):
         payload = {
             "success": {
                 "results": [
-                    {"isPublished": True, "key": "fallback-key", "seoConfig": {"urlSlug": "first"}},
+                    {
+                        "isPublished": True,
+                        "key": "fallback-key",
+                        "seoConfig": {"urlSlug": "first"},
+                    },
                     {"isPublished": True, "key": "second", "seoConfig": None},
-                    {"isPublished": False, "key": "draft", "seoConfig": {"urlSlug": "draft"}},
+                    {
+                        "isPublished": False,
+                        "key": "draft",
+                        "seoConfig": {"urlSlug": "draft"},
+                    },
                 ]
             }
         }
@@ -50,11 +64,33 @@ class ArticleExtractorTest(unittest.TestCase):
         <div class="css-154r2lc">2026년 7월 22일</div>
         <div class="css-1vn47db"><p>본문</p></div>
         """
-        article = TossArticleExtractor().parse_html(html, "https://toss.tech/article/example")
+        article = TossArticleExtractor().parse_html(
+            html, "https://toss.tech/article/example"
+        )
 
         self.assertEqual(article["title"], "제목")
         self.assertEqual(article["date"], "2026년 7월 22일")
         self.assertEqual(article["content"]["markdown"], "본문")
+
+    def test_markdown_conversion_preserves_structure_and_removes_scripts(self):
+        html = """
+        <div>
+          <h2>소제목</h2>
+          <p><strong>중요</strong>한 <a href="https://example.com">링크</a></p>
+          <ul><li>첫 번째</li><li>두 번째</li></ul>
+          <script>alert("제거 대상")</script>
+        </div>
+        """
+
+        markdown = TossArticleExtractor().html_to_markdown(
+            BeautifulSoup(html, "html.parser")
+        )
+
+        self.assertIn("## 소제목", markdown)
+        self.assertIn("**중요**", markdown)
+        self.assertIn("[링크](https://example.com)", markdown)
+        self.assertIn("- 첫 번째", markdown)
+        self.assertNotIn("alert", markdown)
 
     def test_legacy_import_names_remain_available(self):
         self.assertIs(TossCrawler, TossArticleExtractor)
@@ -63,10 +99,15 @@ class ArticleExtractorTest(unittest.TestCase):
     def test_current_html_structure_uses_semantic_fallbacks(self):
         html = """
         <meta property="og:title" content="메타 제목" />
-        <header><h1 class="new-generated-class">현재 제목</h1><div>2026년 5월 22일</div></header>
+        <header>
+          <h1 class="new-generated-class">현재 제목</h1>
+          <div>2026년 5월 22일</div>
+        </header>
         <div class="new-content-wrapper"><p>현재 본문</p></div>
         """
-        article = TossArticleExtractor().parse_html(html, "https://toss.tech/article/current")
+        article = TossArticleExtractor().parse_html(
+            html, "https://toss.tech/article/current"
+        )
 
         self.assertEqual(article["title"], "현재 제목")
         self.assertEqual(article["date"], "2026년 5월 22일")

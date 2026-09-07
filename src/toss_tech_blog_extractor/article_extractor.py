@@ -2,20 +2,20 @@
 
 import argparse
 import asyncio
-from datetime import datetime
 import logging
-from pathlib import Path
 import re
 import time
+from datetime import datetime
+from pathlib import Path
 
+import aiohttp
 from bs4 import BeautifulSoup
-import html2text
+from markdownify import markdownify
 
 from .clients import create_async_session
 from .exporters import DATA_DIR, save_articles_json, save_articles_markdown
 from .models import Article, ArticleContent
 from .selectors import ARTICLE_SELECTORS, DATE_TEXT_PATTERN
-
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +28,6 @@ class TossArticleExtractor:
         self.timeout = timeout
         self.retries = retries
         self.selectors = ARTICLE_SELECTORS
-        self.h2t = html2text.HTML2Text()
-        self.h2t.ignore_links = False
-        self.h2t.ignore_images = False
-        self.h2t.ignore_emphasis = False
-        self.h2t.body_width = 0
-        self.h2t.unicode_snob = True
-        self.h2t.escape_snob = True
 
     async def fetch_url(self, session, url: str) -> dict[str, object] | None:
         for attempt in range(self.retries + 1):
@@ -46,8 +39,10 @@ class TossArticleExtractor:
                         logger.warning("HTTP %s for %s", response.status, url)
                         return None
                     logger.warning("Retryable HTTP %s for %s", response.status, url)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("Timeout for %s", url)
+            except aiohttp.ClientError as error:
+                logger.warning("Request failed for %s: %s", url, error)
             except Exception:
                 logger.exception("Error fetching %s", url)
 
@@ -71,7 +66,13 @@ class TossArticleExtractor:
             cleaned_soup = self.clean_html_for_markdown(soup)
             if not cleaned_soup:
                 return "내용 없음"
-            return self.clean_markdown(self.h2t.handle(str(cleaned_soup)))
+            markdown = markdownify(
+                str(cleaned_soup),
+                heading_style="ATX",
+                bullets="-",
+                wrap=False,
+            )
+            return self.clean_markdown(markdown)
         except Exception:
             logger.exception("Error converting HTML to markdown")
             return html_content.get_text(strip=True) if html_content else "변환 오류"
@@ -92,19 +93,25 @@ class TossArticleExtractor:
     def extract_title(self, soup: BeautifulSoup) -> str | None:
         if element := self.find_first_element(soup, "title"):
             return element.get_text(strip=True)
-        if element := soup.select_one('meta[property="og:title"], meta[name="twitter:title"]'):
+        if element := soup.select_one(
+            'meta[property="og:title"], meta[name="twitter:title"]'
+        ):
             return element.get("content")
         return None
 
     def extract_date(self, soup: BeautifulSoup) -> str | None:
         for selector in self.selectors["date"]:
-            if element := soup.select_one(selector):
-                if matched := re.search(DATE_TEXT_PATTERN, element.get_text(" ", strip=True)):
-                    return matched.group(0)
-
-        if header := soup.find("header"):
-            if matched := re.search(DATE_TEXT_PATTERN, header.get_text(" ", strip=True)):
+            if (element := soup.select_one(selector)) and (
+                matched := re.search(
+                    DATE_TEXT_PATTERN, element.get_text(" ", strip=True)
+                )
+            ):
                 return matched.group(0)
+
+        if (header := soup.find("header")) and (
+            matched := re.search(DATE_TEXT_PATTERN, header.get_text(" ", strip=True))
+        ):
+            return matched.group(0)
 
         for script in soup.find_all("script"):
             script_text = script.string or script.get_text()
@@ -152,8 +159,10 @@ class TossArticleExtractor:
                 title=title or "제목 없음",
                 date=date or "날짜 없음",
                 content=content,
-                crawled_at=datetime.now().isoformat(),
-                error=f"추출하지 못한 필드: {', '.join(missing_fields)}" if missing_fields else None,
+                crawled_at=datetime.now().astimezone().isoformat(),
+                error=f"추출하지 못한 필드: {', '.join(missing_fields)}"
+                if missing_fields
+                else None,
             ).to_dict()
         except Exception as error:
             logger.exception("Error parsing HTML for %s", url)
@@ -162,7 +171,7 @@ class TossArticleExtractor:
                 title="파싱 오류",
                 date="파싱 오류",
                 content=ArticleContent("파싱 오류", "파싱 오류", "파싱 오류"),
-                crawled_at=datetime.now().isoformat(),
+                crawled_at=datetime.now().astimezone().isoformat(),
                 error=str(error),
             ).to_dict()
 
@@ -177,7 +186,9 @@ class TossArticleExtractor:
                 async with semaphore:
                     return await self.fetch_url(session, url)
 
-            results = await asyncio.gather(*(fetch_with_limit(url) for url in urls), return_exceptions=True)
+            results = await asyncio.gather(
+                *(fetch_with_limit(url) for url in urls), return_exceptions=True
+            )
 
         valid_results: list[dict[str, object]] = []
         for result in results:
@@ -191,20 +202,33 @@ class TossArticleExtractor:
     def load_urls_from_file(file_path: str | Path) -> list[str]:
         try:
             with Path(file_path).open("r", encoding="utf-8") as file:
-                urls = [line.strip() for line in file if line.strip() and not line.lstrip().startswith("#")]
+                urls = [
+                    line.strip()
+                    for line in file
+                    if line.strip() and not line.lstrip().startswith("#")
+                ]
                 return list(dict.fromkeys(urls))
         except OSError:
             logger.exception("Error loading URLs from %s", file_path)
             return []
 
-    async def run(self, url_file_path: str | Path, output_file_path: str | Path, save_markdown: bool = False) -> list[dict[str, object]]:
+    async def run(
+        self,
+        url_file_path: str | Path,
+        output_file_path: str | Path,
+        save_markdown: bool = False,
+    ) -> list[dict[str, object]]:
         start_time = time.time()
         urls = self.load_urls_from_file(url_file_path)
         if not urls:
             logger.error("No URLs to crawl")
             return []
 
-        logger.info("Starting crawl of %s URLs with %s concurrent connections", len(urls), self.max_concurrent)
+        logger.info(
+            "Starting crawl of %s URLs with %s concurrent connections",
+            len(urls),
+            self.max_concurrent,
+        )
         results = await self.crawl_batch(urls)
         saved_path = save_articles_json(results, output_file_path)
         logger.info("Results saved to %s", saved_path)
@@ -222,9 +246,15 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     """게시글 추출 명령에 필요한 인자를 등록한다."""
     parser.add_argument("--input", "-i", required=True, help="URL 목록 입력 파일")
     parser.add_argument("--output", "-o", help="출력 JSON 파일")
-    parser.add_argument("--concurrent", "-c", type=int, default=10, help="최대 동시 연결 수")
-    parser.add_argument("--timeout", "-t", type=int, default=30, help="요청 제한 시간(초)")
-    parser.add_argument("--markdown", "-m", action="store_true", help="게시글별 Markdown 파일 저장")
+    parser.add_argument(
+        "--concurrent", "-c", type=positive_int, default=10, help="최대 동시 연결 수"
+    )
+    parser.add_argument(
+        "--timeout", "-t", type=positive_int, default=30, help="요청 제한 시간(초)"
+    )
+    parser.add_argument(
+        "--markdown", "-m", action="store_true", help="게시글별 Markdown 파일 저장"
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -233,14 +263,27 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def positive_int(value: str) -> int:
+    """CLI 입력을 1 이상의 정수로 검증한다."""
+    parsed_value = int(value)
+    if parsed_value < 1:
+        raise argparse.ArgumentTypeError("1 이상의 정수를 입력해야 합니다")
+    return parsed_value
+
+
 def run_from_args(args: argparse.Namespace) -> None:
     """파싱된 인자로 게시글 추출을 실행한다."""
     output_file = args.output
     if not output_file:
-        output_name = f"toss_crawled_{Path(args.input).stem}_{datetime.now():%Y%m%d_%H%M%S}.json"
+        output_name = (
+            f"toss_crawled_{Path(args.input).stem}_"
+            f"{datetime.now().astimezone():%Y%m%d_%H%M%S}.json"
+        )
         output_file = DATA_DIR / "jsons" / output_name
 
-    extractor = TossArticleExtractor(max_concurrent=args.concurrent, timeout=args.timeout)
+    extractor = TossArticleExtractor(
+        max_concurrent=args.concurrent, timeout=args.timeout
+    )
     asyncio.run(extractor.run(args.input, output_file, args.markdown))
 
 

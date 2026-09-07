@@ -1,5 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
 .venv/
 
+# 테스트, 린트, 타입 검사, 커버리지
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# 빌드 및 패키징
+build/
+dist/
+*.egg-info/
+
+# 에디터 및 운영체제
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# 개인 작업 파일
 GEMINI.md
-
-
