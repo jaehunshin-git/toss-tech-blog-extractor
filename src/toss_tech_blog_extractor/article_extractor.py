@@ -4,7 +4,6 @@ import argparse
 import asyncio
 import logging
 import re
-import time
 from datetime import datetime
 from pathlib import Path
 
@@ -14,6 +13,7 @@ from markdownify import markdownify
 
 from .clients import create_async_session
 from .exporters import DATA_DIR, save_articles_json, save_articles_markdown
+from .metrics import CrawlSummary
 from .models import Article, ArticleContent
 from .selectors import ARTICLE_SELECTORS, DATE_TEXT_PATTERN
 
@@ -28,26 +28,49 @@ class TossArticleExtractor:
         self.timeout = timeout
         self.retries = retries
         self.selectors = ARTICLE_SELECTORS
+        self.last_run_summary = CrawlSummary()
 
-    async def fetch_url(self, session, url: str) -> dict[str, object] | None:
+    async def fetch_url(
+        self,
+        session,
+        url: str,
+        summary: CrawlSummary | None = None,
+    ) -> dict[str, object] | None:
+        retry_statuses: list[object] = []
         for attempt in range(self.retries + 1):
             try:
                 async with session.get(url) as response:
                     if response.status == 200:
-                        return self.parse_html(await response.text(), url)
+                        article = self.parse_html(await response.text(), url)
+                        if summary:
+                            summary.record_request(
+                                success=True, retry_statuses=retry_statuses
+                            )
+                        return article
                     if response.status not in {429, 500, 502, 503, 504}:
                         logger.warning("HTTP %s for %s", response.status, url)
+                        if summary:
+                            summary.record_request(
+                                success=False, retry_statuses=retry_statuses
+                            )
                         return None
                     logger.warning("Retryable HTTP %s for %s", response.status, url)
+                    retry_reason: object = response.status
             except TimeoutError:
                 logger.warning("Timeout for %s", url)
+                retry_reason = "timeout"
             except aiohttp.ClientError as error:
                 logger.warning("Request failed for %s: %s", url, error)
+                retry_reason = "client_error"
             except Exception:
                 logger.exception("Error fetching %s", url)
+                retry_reason = "client_error"
 
             if attempt < self.retries:
+                retry_statuses.append(retry_reason)
                 await asyncio.sleep(2**attempt)
+        if summary:
+            summary.record_request(success=False, retry_statuses=retry_statuses)
         return None
 
     def clean_html_for_markdown(self, element):
@@ -175,7 +198,14 @@ class TossArticleExtractor:
                 error=str(error),
             ).to_dict()
 
-    async def crawl_batch(self, urls: list[str]) -> list[dict[str, object]]:
+    async def crawl_batch(
+        self,
+        urls: list[str],
+        summary: CrawlSummary | None = None,
+    ) -> list[dict[str, object]]:
+        owns_summary = summary is None
+        summary = summary or CrawlSummary()
+        self.last_run_summary = summary
         async with create_async_session(
             max_connections=self.max_concurrent,
             timeout_seconds=self.timeout,
@@ -184,7 +214,7 @@ class TossArticleExtractor:
 
             async def fetch_with_limit(url: str):
                 async with semaphore:
-                    return await self.fetch_url(session, url)
+                    return await self.fetch_url(session, url, summary)
 
             results = await asyncio.gather(
                 *(fetch_with_limit(url) for url in urls), return_exceptions=True
@@ -196,6 +226,9 @@ class TossArticleExtractor:
                 valid_results.append(result)
             elif isinstance(result, Exception):
                 logger.error("Task exception: %s", result)
+                summary.record_request(success=False)
+        if owns_summary:
+            summary.finish()
         return valid_results
 
     @staticmethod
@@ -218,10 +251,13 @@ class TossArticleExtractor:
         output_file_path: str | Path,
         save_markdown: bool = False,
     ) -> list[dict[str, object]]:
-        start_time = time.time()
+        summary = CrawlSummary()
+        self.last_run_summary = summary
         urls = self.load_urls_from_file(url_file_path)
         if not urls:
             logger.error("No URLs to crawl")
+            summary.finish()
+            print(summary.format_text())
             return []
 
         logger.info(
@@ -229,7 +265,7 @@ class TossArticleExtractor:
             len(urls),
             self.max_concurrent,
         )
-        results = await self.crawl_batch(urls)
+        results = await self.crawl_batch(urls, summary)
         saved_path = save_articles_json(results, output_file_path)
         logger.info("Results saved to %s", saved_path)
 
@@ -237,8 +273,10 @@ class TossArticleExtractor:
             saved_files = save_articles_markdown(results, DATA_DIR / "mark_downs")
             logger.info("Saved %s Markdown files", len(saved_files))
 
-        logger.info("Crawling completed in %.2f seconds", time.time() - start_time)
+        summary.finish()
+        logger.info("Crawling completed in %.2f seconds", summary.elapsed_seconds)
         logger.info("Successfully crawled %s out of %s URLs", len(results), len(urls))
+        print(summary.format_text())
         return results
 
 

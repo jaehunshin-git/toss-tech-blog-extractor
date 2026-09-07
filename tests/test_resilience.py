@@ -11,6 +11,7 @@ from toss_tech_blog_extractor.article_extractor import (
     TossArticleExtractor,
     build_parser,
 )
+from toss_tech_blog_extractor.metrics import CrawlSummary
 
 
 class FakeResponse:
@@ -69,34 +70,40 @@ class FetchRetryTest(IsolatedAsyncioTestCase):
             ]
         )
         extractor = TossArticleExtractor(retries=2)
+        summary = CrawlSummary()
 
         with patch(
             "toss_tech_blog_extractor.article_extractor.asyncio.sleep",
             new_callable=AsyncMock,
         ) as sleep:
             article = await extractor.fetch_url(
-                session, "https://toss.tech/article/example"
+                session, "https://toss.tech/article/example", summary
             )
 
         self.assertEqual(session.request_count, 2)
         sleep.assert_awaited_once_with(1)
         self.assertEqual(article["title"], "제목")
+        self.assertEqual(summary.success_count, 1)
+        self.assertEqual(summary.retry_by_status, {"429": 1})
 
     async def test_timeout_is_retried_then_returns_none(self):
         session = FakeSession([RaisingRequest(TimeoutError()) for _ in range(3)])
         extractor = TossArticleExtractor(retries=2)
+        summary = CrawlSummary()
 
         with patch(
             "toss_tech_blog_extractor.article_extractor.asyncio.sleep",
             new_callable=AsyncMock,
         ) as sleep:
             result = await extractor.fetch_url(
-                session, "https://toss.tech/article/timeout"
+                session, "https://toss.tech/article/timeout", summary
             )
 
         self.assertIsNone(result)
         self.assertEqual(session.request_count, 3)
         self.assertEqual(sleep.await_count, 2)
+        self.assertEqual(summary.failure_count, 1)
+        self.assertEqual(summary.retry_by_status, {"timeout": 2})
 
     async def test_connection_error_is_retried_then_returns_none(self):
         session = FakeSession(
@@ -106,18 +113,21 @@ class FetchRetryTest(IsolatedAsyncioTestCase):
             ]
         )
         extractor = TossArticleExtractor(retries=2)
+        summary = CrawlSummary()
 
         with patch(
             "toss_tech_blog_extractor.article_extractor.asyncio.sleep",
             new_callable=AsyncMock,
         ) as sleep:
             result = await extractor.fetch_url(
-                session, "https://toss.tech/article/unavailable"
+                session, "https://toss.tech/article/unavailable", summary
             )
 
         self.assertIsNone(result)
         self.assertEqual(session.request_count, 3)
         self.assertEqual(sleep.await_count, 2)
+        self.assertEqual(summary.failure_count, 1)
+        self.assertEqual(summary.retry_by_status, {"client_error": 2})
 
 
 class ExtractorCliValidationTest(TestCase):
